@@ -35,6 +35,7 @@ type RawHitTuple = (
 
 use crate::core::query::parse_query;
 
+#[allow(clippy::needless_range_loop)]
 pub fn levenshtein_distance(a: &str, b: &str) -> usize {
     let a_chars: Vec<char> = a.chars().collect();
     let b_chars: Vec<char> = b.chars().collect();
@@ -387,7 +388,7 @@ mod tests {
         )
         .unwrap();
 
-        let results = search_documents(&[f_path.clone()], "instalation");
+        let results = search_documents(std::slice::from_ref(&f_path), "instalation");
         assert_eq!(results.total_hits, 1);
         assert!(
             results.hits[0].line_snippet.contains("Installation")
