@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -37,6 +37,10 @@ pub fn draw_ui(f: &mut Frame, app: &App) {
     }
 
     draw_status_bar(f, status_area, app);
+
+    if app.fuzzy_active {
+        draw_fuzzy_finder_modal(f, f.area(), app);
+    }
 }
 
 fn draw_toc_sidebar(f: &mut Frame, area: Rect, app: &App) {
@@ -51,7 +55,7 @@ fn draw_toc_sidebar(f: &mut Frame, area: Rect, app: &App) {
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Cyan)
+                Style::default().fg(app.theme.header_color())
             };
             ListItem::new(Line::from(Span::styled(
                 format!("{}• {}", indent, h.title),
@@ -64,19 +68,21 @@ fn draw_toc_sidebar(f: &mut Frame, area: Rect, app: &App) {
         Block::default()
             .title(" TOC (Outline) ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
+            .border_style(Style::default().fg(app.theme.border_color())),
     );
 
     f.render_widget(list, area);
 }
 
 fn draw_main_viewport(f: &mut Frame, area: Rect, app: &App) {
-    let lines = render_rich_markdown(&app.raw_text, &app.search_query);
+    let lines = render_rich_markdown(&app.raw_text, &app.search_query, app.theme);
 
     let title = if app.search_active {
         format!(" Search: {}_ ", app.search_query)
+    } else if let Some(ref path) = app.active_path {
+        format!(" Pankh Reader - {} ({}) ", path.display(), app.theme.name())
     } else {
-        String::from(" Pankh Reader (Human Mode) ")
+        format!(" Pankh Reader ({}) ", app.theme.name())
     };
 
     let paragraph = Paragraph::new(lines)
@@ -84,7 +90,7 @@ fn draw_main_viewport(f: &mut Frame, area: Rect, app: &App) {
             Block::default()
                 .title(title)
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)),
+                .border_style(Style::default().fg(app.theme.border_color())),
         )
         .scroll((app.scroll_offset, 0))
         .wrap(Wrap { trim: false });
@@ -92,8 +98,69 @@ fn draw_main_viewport(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(paragraph, area);
 }
 
+fn draw_fuzzy_finder_modal(f: &mut Frame, area: Rect, app: &App) {
+    let popup_area = centered_rect(65, 65, area);
+    let items: Vec<ListItem> = app
+        .fuzzy_matches
+        .iter()
+        .enumerate()
+        .map(|(idx, (path, tokens))| {
+            let style = if idx == app.fuzzy_selected_index {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(app.theme.text_color())
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("📄 {} ", path.display()), style),
+                Span::styled(
+                    format!("({} tokens)", tokens),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]))
+        })
+        .collect();
+
+    let title = format!(
+        " Workspace Fuzzy Finder: {}_ (Ctrl+J/K: Nav, Enter: Open, Esc: Close) ",
+        app.fuzzy_query
+    );
+    let list = List::new(items).block(
+        Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(app.theme.border_color())),
+    );
+
+    f.render_widget(Clear, popup_area);
+    f.render_widget(list, popup_area);
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}
+
 fn draw_status_bar(f: &mut Frame, area: Rect, app: &App) {
-    let status_text = if app.search_active {
+    let status_text = if app.fuzzy_active {
+        format!(" [Fuzzy Finder] Type to filter | Ctrl+J/K: Navigate | Enter: Open | Esc: Close")
+    } else if app.search_active {
         format!(
             " [Search Mode] Query: \"{}\"_ | [Enter]: Find | [Esc]: Cancel Search | [Ctrl+C]: Quit",
             app.search_query
@@ -111,7 +178,7 @@ fn draw_status_bar(f: &mut Frame, area: Rect, app: &App) {
                     )
                 } else {
                     format!(
-                        " Line: {}/{} | Est. Tokens: {} | [j/k/g/G]: Scroll | [Tab/b]: TOC | [a]: Copy Clean | [/]: Search | [q]: Quit",
+                        " Line: {}/{} | Est. Tokens: {} | [Ctrl+P/f]: Finder | [t]: Theme | [y]: Copy Code | [Tab/b]: TOC | [/]: Search | [q]: Quit",
                         app.scroll_offset + 1,
                         app.rendered_line_count,
                         app.estimated_tokens

@@ -10,11 +10,17 @@ use unicode_width::UnicodeWidthStr;
 use crate::core::parser::parse_markdown;
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
 
+use crate::tui::app::AppTheme;
+
 /// Renders raw Markdown into rich styled Ratatui Lines with header hierarchy, blockquotes, nested lists, task checkboxes, tables, and syntax highlighting
-pub fn render_rich_markdown<'a>(raw_text: &'a str, search_query: &str) -> Vec<Line<'a>> {
+pub fn render_rich_markdown<'a>(
+    raw_text: &'a str,
+    search_query: &str,
+    theme: AppTheme,
+) -> Vec<Line<'a>> {
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
-    let theme = &ts.themes["base16-ocean.dark"];
+    let syntect_theme = &ts.themes[theme.syntect_theme()];
 
     let mut lines: Vec<Line> = Vec::new();
     let mut in_code_block = false;
@@ -80,10 +86,10 @@ pub fn render_rich_markdown<'a>(raw_text: &'a str, search_query: &str) -> Vec<Li
 
                             let style = if r_idx == 0 {
                                 Style::default()
-                                    .fg(Color::Yellow)
+                                    .fg(theme.header_color())
                                     .add_modifier(Modifier::BOLD)
                             } else {
-                                Style::default().fg(Color::Reset)
+                                Style::default().fg(theme.text_color())
                             };
 
                             line_spans.push(Span::styled(padded, style));
@@ -92,9 +98,8 @@ pub fn render_rich_markdown<'a>(raw_text: &'a str, search_query: &str) -> Vec<Li
                         }
                         lines.push(Line::from(line_spans));
 
-                        // Render divider after table head
-                        if r_idx == 0 && table_rows.len() > 1 {
-                            let mid_border = format!(
+                        if r_idx == 0 {
+                            let sep = format!(
                                 "├{}┤",
                                 col_widths
                                     .iter()
@@ -103,7 +108,7 @@ pub fn render_rich_markdown<'a>(raw_text: &'a str, search_query: &str) -> Vec<Li
                                     .join("┼")
                             );
                             lines.push(Line::from(Span::styled(
-                                mid_border,
+                                sep,
                                 Style::default().fg(Color::DarkGray),
                             )));
                         }
@@ -196,12 +201,27 @@ pub fn render_rich_markdown<'a>(raw_text: &'a str, search_query: &str) -> Vec<Li
                     let syntax = ps
                         .find_syntax_by_extension(&current_code_lang)
                         .unwrap_or_else(|| ps.find_syntax_plain_text());
-                    let mut highlighter = HighlightLines::new(syntax, theme);
+                    let mut highlighter = HighlightLines::new(syntax, syntect_theme);
 
-                    lines.push(Line::from(Span::styled(
-                        format!("─── ```{} ───", current_code_lang),
-                        Style::default().fg(Color::DarkGray),
-                    )));
+                    let lang_tag = if current_code_lang.trim().is_empty() {
+                        "CODE".to_string()
+                    } else {
+                        current_code_lang.trim().to_uppercase()
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled("┌─ [ ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            lang_tag,
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            " ] ────────────────────────────────────────┐",
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
 
                     for code_line in &code_lines {
                         let ranges = highlighter
@@ -222,7 +242,7 @@ pub fn render_rich_markdown<'a>(raw_text: &'a str, search_query: &str) -> Vec<Li
                     }
 
                     lines.push(Line::from(Span::styled(
-                        "───────",
+                        "└──────────────────────────────────────────────────┘",
                         Style::default().fg(Color::DarkGray),
                     )));
                     in_code_block = false;
@@ -346,7 +366,7 @@ mod tests {
     #[test]
     fn test_rich_render_table() {
         let raw = "| Name | Role |\n|---|---|\n| Pankh | Reader |";
-        let lines = render_rich_markdown(raw, "");
+        let lines = render_rich_markdown(raw, "", AppTheme::OceanDark);
         assert!(lines.iter().any(|l| l.to_string().contains("┌")));
         assert!(lines.iter().any(|l| l.to_string().contains("Pankh")));
     }
@@ -354,7 +374,7 @@ mod tests {
     #[test]
     fn test_rich_render_unicode_table_alignment() {
         let raw = "| Icon | Name |\n|---|---|\n| 🪶 | Pankh Reader |";
-        let lines = render_rich_markdown(raw, "");
+        let lines = render_rich_markdown(raw, "", AppTheme::OceanDark);
         assert!(lines.iter().any(|l| l.to_string().contains("┌")));
         assert!(lines.iter().any(|l| l.to_string().contains("🪶")));
     }
@@ -362,7 +382,7 @@ mod tests {
     #[test]
     fn test_rich_render_task_list() {
         let raw = "- [x] Done\n- [ ] Todo";
-        let lines = render_rich_markdown(raw, "");
+        let lines = render_rich_markdown(raw, "", AppTheme::OceanDark);
         assert!(lines.iter().any(|l| l.to_string().contains("[✓]")));
     }
 }

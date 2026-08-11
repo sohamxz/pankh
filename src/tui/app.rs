@@ -2,18 +2,20 @@ use arboard::Clipboard;
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
-        MouseEventKind,
+        MouseButton, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::core::agent::{calculate_stats, clean_markdown, extract_outline, HeadingNode};
+use crate::core::agent::{
+    calculate_stats, clean_markdown, extract_code_blocks, extract_outline, HeadingNode,
+};
 use crate::tui::ui::draw_ui;
 
 /// Installs a global panic hook that safely restores standard terminal state (disables raw mode & exits alternate screen) if a panic occurs
@@ -78,6 +80,69 @@ pub fn extract_document_links(content: &str) -> Vec<DocumentLink> {
     links
 }
 
+use ratatui::style::Color;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppTheme {
+    OceanDark,
+    Dracula,
+    Gruvbox,
+    CleanLight,
+}
+
+impl AppTheme {
+    pub fn name(&self) -> &'static str {
+        match self {
+            AppTheme::OceanDark => "Ocean Dark 🌙",
+            AppTheme::Dracula => "Dracula 🧛",
+            AppTheme::Gruvbox => "Gruvbox 🌲",
+            AppTheme::CleanLight => "Clean Light ☀️",
+        }
+    }
+
+    pub fn next(&self) -> Self {
+        match self {
+            AppTheme::OceanDark => AppTheme::Dracula,
+            AppTheme::Dracula => AppTheme::Gruvbox,
+            AppTheme::Gruvbox => AppTheme::CleanLight,
+            AppTheme::CleanLight => AppTheme::OceanDark,
+        }
+    }
+
+    pub fn border_color(&self) -> Color {
+        match self {
+            AppTheme::OceanDark => Color::Blue,
+            AppTheme::Dracula => Color::Magenta,
+            AppTheme::Gruvbox => Color::Yellow,
+            AppTheme::CleanLight => Color::DarkGray,
+        }
+    }
+
+    pub fn header_color(&self) -> Color {
+        match self {
+            AppTheme::OceanDark => Color::Cyan,
+            AppTheme::Dracula => Color::LightRed,
+            AppTheme::Gruvbox => Color::Rgb(251, 73, 52),
+            AppTheme::CleanLight => Color::Blue,
+        }
+    }
+
+    pub fn text_color(&self) -> Color {
+        match self {
+            AppTheme::CleanLight => Color::Black,
+            _ => Color::White,
+        }
+    }
+
+    pub fn syntect_theme(&self) -> &'static str {
+        match self {
+            AppTheme::CleanLight => "base16-ocean.light",
+            AppTheme::Gruvbox | AppTheme::Dracula => "base16-eighties.dark",
+            _ => "base16-ocean.dark",
+        }
+    }
+}
+
 pub struct App {
     pub raw_text: String,
     pub cleaned_text: String,
@@ -96,6 +161,12 @@ pub struct App {
     pub status_message: Option<String>,
     pub estimated_tokens: usize,
     pub should_quit: bool,
+    pub theme: AppTheme,
+    pub fuzzy_active: bool,
+    pub fuzzy_query: String,
+    pub fuzzy_files: Vec<(PathBuf, usize)>,
+    pub fuzzy_matches: Vec<(PathBuf, usize)>,
+    pub fuzzy_selected_index: usize,
 }
 
 impl App {
@@ -105,7 +176,8 @@ impl App {
         let cleaned = clean_markdown(content);
         let flat_headings = flatten_headings(&outline.headings);
         let links = extract_document_links(content);
-        let rendered_lines = crate::tui::render::render_rich_markdown(content, "");
+        let theme = AppTheme::OceanDark;
+        let rendered_lines = crate::tui::render::render_rich_markdown(content, "", theme);
         let rendered_line_count = rendered_lines.len();
 
         App {
@@ -126,6 +198,12 @@ impl App {
             status_message: None,
             estimated_tokens: stats.estimated_tokens,
             should_quit: false,
+            theme,
+            fuzzy_active: false,
+            fuzzy_query: String::new(),
+            fuzzy_files: Vec::new(),
+            fuzzy_matches: Vec::new(),
+            fuzzy_selected_index: 0,
         }
     }
 
@@ -140,7 +218,7 @@ impl App {
                 self.raw_text = new_content;
                 self.cleaned_text = cleaned;
                 self.rendered_line_count =
-                    crate::tui::render::render_rich_markdown(&self.raw_text, "").len();
+                    crate::tui::render::render_rich_markdown(&self.raw_text, "", self.theme).len();
                 self.headings = flat_headings;
                 self.links = links;
                 self.estimated_tokens = stats.estimated_tokens;
@@ -237,7 +315,7 @@ impl App {
         self.raw_text = content.to_string();
         self.cleaned_text = cleaned;
         self.rendered_line_count =
-            crate::tui::render::render_rich_markdown(&self.raw_text, "").len();
+            crate::tui::render::render_rich_markdown(&self.raw_text, "", self.theme).len();
         self.scroll_offset = 0;
         self.headings = flat_headings;
         self.links = links;
@@ -257,7 +335,7 @@ impl App {
             self.raw_text = prev_text;
             self.cleaned_text = cleaned;
             self.rendered_line_count =
-                crate::tui::render::render_rich_markdown(&self.raw_text, "").len();
+                crate::tui::render::render_rich_markdown(&self.raw_text, "", self.theme).len();
             self.scroll_offset = prev_scroll;
             self.headings = flat_headings;
             self.links = links;
@@ -344,6 +422,102 @@ impl App {
         }
     }
 
+    pub fn cycle_theme(&mut self) {
+        self.theme = self.theme.next();
+        self.status_message = Some(format!("Theme set to: {}", self.theme.name()));
+    }
+
+    pub fn open_fuzzy_finder(&mut self) {
+        self.fuzzy_active = true;
+        self.fuzzy_query.clear();
+        self.fuzzy_selected_index = 0;
+        self.fuzzy_files.clear();
+
+        let mut paths = Vec::new();
+        fn collect_md(dir: &Path, acc: &mut Vec<PathBuf>) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() {
+                        if let Some(ext) = p.extension() {
+                            if ext.eq_ignore_ascii_case("md")
+                                || ext.eq_ignore_ascii_case("markdown")
+                            {
+                                acc.push(p);
+                            }
+                        }
+                    } else if p.is_dir() {
+                        let name = p.file_name().unwrap_or_default().to_string_lossy();
+                        if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                            collect_md(&p, acc);
+                        }
+                    }
+                }
+            }
+        }
+
+        collect_md(Path::new("."), &mut paths);
+        for p in paths {
+            if let Ok(c) = crate::core::io::read_markdown_file_safe(&p) {
+                let stats = calculate_stats(&c);
+                self.fuzzy_files.push((p, stats.estimated_tokens));
+            }
+        }
+        self.update_fuzzy_matches();
+    }
+
+    pub fn update_fuzzy_matches(&mut self) {
+        self.fuzzy_matches.clear();
+        let query = self.fuzzy_query.to_lowercase();
+        for (path, tokens) in &self.fuzzy_files {
+            let path_str = path.display().to_string().to_lowercase();
+            if query.is_empty() || path_str.contains(&query) {
+                self.fuzzy_matches.push((path.clone(), *tokens));
+            }
+        }
+        if self.fuzzy_selected_index >= self.fuzzy_matches.len() {
+            self.fuzzy_selected_index = 0;
+        }
+    }
+
+    pub fn select_fuzzy_match(&mut self) {
+        if self.fuzzy_matches.is_empty() {
+            return;
+        }
+        let (selected_path, _) = self.fuzzy_matches[self.fuzzy_selected_index].clone();
+        if let Ok(content) = crate::core::io::read_markdown_file_safe(&selected_path) {
+            let title = selected_path.display().to_string();
+            self.load_new_document(&content, &title, Some(selected_path));
+            self.fuzzy_active = false;
+        }
+    }
+
+    pub fn copy_focused_code_block(&mut self) {
+        let code_blocks = extract_code_blocks(&self.raw_text, None);
+        if code_blocks.is_empty() {
+            self.status_message = Some("No code blocks found in document.".to_string());
+            return;
+        }
+
+        // Copy the first code block or the block nearest to current scroll offset
+        let code_to_copy = &code_blocks[0].code;
+        match Clipboard::new() {
+            Ok(mut clipboard) => {
+                if clipboard.set_text(code_to_copy).is_ok() {
+                    self.status_message = Some(format!(
+                        "Copied code block ({}) to clipboard!",
+                        code_blocks[0].language
+                    ));
+                } else {
+                    self.status_message = Some("Failed to copy code block.".to_string());
+                }
+            }
+            Err(_) => {
+                self.status_message = Some("Clipboard unavailable.".to_string());
+            }
+        }
+    }
+
     pub fn clear_search(&mut self) {
         self.search_active = false;
         self.search_query.clear();
@@ -353,6 +527,38 @@ impl App {
     }
 
     pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        if self.fuzzy_active {
+            match code {
+                KeyCode::Esc => {
+                    self.fuzzy_active = false;
+                }
+                KeyCode::Enter => {
+                    self.select_fuzzy_match();
+                }
+                KeyCode::Up | KeyCode::Char('k') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    if self.fuzzy_selected_index > 0 {
+                        self.fuzzy_selected_index -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    if !self.fuzzy_matches.is_empty() {
+                        self.fuzzy_selected_index =
+                            (self.fuzzy_selected_index + 1).min(self.fuzzy_matches.len() - 1);
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.fuzzy_query.pop();
+                    self.update_fuzzy_matches();
+                }
+                KeyCode::Char(c) => {
+                    self.fuzzy_query.push(c);
+                    self.update_fuzzy_matches();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.search_active {
             match code {
                 KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -382,6 +588,18 @@ impl App {
             }
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
+            }
+            KeyCode::Char('p') if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_fuzzy_finder();
+            }
+            KeyCode::Char('f') => {
+                self.open_fuzzy_finder();
+            }
+            KeyCode::Char('t') => {
+                self.cycle_theme();
+            }
+            KeyCode::Char('y') => {
+                self.copy_focused_code_block();
             }
             KeyCode::Esc => {
                 if !self.search_query.is_empty() || !self.search_matches.is_empty() {
@@ -500,6 +718,19 @@ pub fn run_tui(content: &str, paths: &[PathBuf], watch: bool) -> anyhow::Result<
                 Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollDown => app.scroll_down(3),
                     MouseEventKind::ScrollUp => app.scroll_up(3),
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        let size = terminal.size()?;
+                        if app.show_toc && (mouse.column as u16) < size.width / 4 {
+                            let idx = mouse.row.saturating_sub(1) as usize;
+                            if idx < app.headings.len() {
+                                app.selected_toc_index = idx;
+                                app.scroll_offset =
+                                    app.headings[idx].start_line.saturating_sub(1) as u16;
+                            }
+                        } else {
+                            app.follow_current_line_link();
+                        }
+                    }
                     _ => {}
                 },
                 Event::Resize(_, _) => {}
