@@ -602,8 +602,15 @@ impl App {
                 self.copy_focused_code_block();
             }
             KeyCode::Esc => {
-                if !self.search_query.is_empty() || !self.search_matches.is_empty() {
+                if !self.search_query.is_empty()
+                    || !self.search_matches.is_empty()
+                    || self.search_active
+                {
                     self.clear_search();
+                } else if self.status_message.is_some() {
+                    self.status_message = None;
+                } else if self.show_toc {
+                    self.show_toc = false;
                 } else {
                     self.should_quit = true;
                 }
