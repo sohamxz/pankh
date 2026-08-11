@@ -3,6 +3,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 pub mod core;
+pub mod gui;
 pub mod mcp;
 pub mod tui;
 
@@ -81,6 +82,10 @@ pub struct Cli {
     /// Run as stdio MCP (Model Context Protocol) server
     #[arg(long)]
     pub mcp: bool,
+
+    /// Launch optional featherweight native desktop GUI interface
+    #[arg(short = 'g', long)]
+    pub gui: bool,
 }
 
 fn collect_markdown_files(path: &Path, acc: &mut Vec<PathBuf>) {
@@ -123,6 +128,12 @@ async fn main() -> anyhow::Result<()> {
 
     if cli.mcp {
         return mcp::server::run_mcp_server().await;
+    }
+
+    if cli.gui {
+        let target_file = cli.files.first().map(|p| p.as_path());
+        gui::run_gui(target_file)?;
+        return Ok(());
     }
 
     // Resolve file targets (recursively expands directories)
