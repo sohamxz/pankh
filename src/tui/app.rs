@@ -1,7 +1,8 @@
 use arboard::Clipboard;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -441,7 +442,7 @@ pub fn run_tui(content: &str, paths: &[PathBuf], watch: bool) -> anyhow::Result<
 
         if event::poll(std::time::Duration::from_millis(100))? {
             match event::read()? {
-                Event::Key(key) => {
+                Event::Key(key) if key.kind != KeyEventKind::Release => {
                     app.handle_key(key.code, key.modifiers);
                 }
                 Event::Mouse(mouse) => match mouse.kind {
