@@ -135,7 +135,7 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
         total_words += words;
     }
 
-    let n_docs = raw_hits.len() as f64;
+    let n_docs = files_searched.max(1) as f64;
     let avgdl = if total_sections > 0 {
         total_words as f64 / total_sections as f64
     } else {
@@ -144,16 +144,17 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
     let k1 = 1.2;
     let b = 0.75;
 
-    // Calculate exact document frequency df(t) for each query term across raw hits
+    // Calculate unique document frequency df(t) for each query term across raw hits
     let mut df_map: HashMap<String, usize> = HashMap::new();
     for term in &query_terms {
-        let count = raw_hits
+        let unique_docs: std::collections::HashSet<&String> = raw_hits
             .iter()
-            .filter(|(_, line_lower, _, heading_title, _)| {
+            .filter(|(hit, line_lower, _, heading_title, _)| {
                 line_lower.contains(term) || heading_title.contains(term)
             })
-            .count();
-        df_map.insert(term.clone(), count);
+            .map(|(hit, ..)| &hit.file_path)
+            .collect();
+        df_map.insert(term.clone(), unique_docs.len());
     }
 
     let mut hits: Vec<SearchHit> = raw_hits
@@ -186,6 +187,7 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
                     }
                 }
 
+                hit.file_path = hit.file_path.replace('\\', "/");
                 hit.score = (total_score * 100.0).round() / 100.0;
                 hit
             },

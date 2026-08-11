@@ -367,7 +367,7 @@ pub fn search_with_index(index: &SearchIndex, raw_query: &str) -> MultiDocSearch
         }
     }
 
-    let n_docs = hit_candidates.len() as f64;
+    let n_docs = (index.docs.len()).max(1) as f64;
     let avgdl = if index.total_sections > 0 {
         index.total_words as f64 / index.total_sections as f64
     } else {
@@ -375,6 +375,15 @@ pub fn search_with_index(index: &SearchIndex, raw_query: &str) -> MultiDocSearch
     };
     let k1 = 1.2;
     let b = 0.75;
+
+    // Calculate unique document frequency df(t) for each query term in index
+    let mut df_map: HashMap<String, usize> = HashMap::new();
+    for term in &query_terms {
+        if let Some(postings) = index.term_posting.get(term) {
+            let unique_docs: std::collections::HashSet<&String> = postings.iter().map(|(dp, _)| dp).collect();
+            df_map.insert(term.clone(), unique_docs.len());
+        }
+    }
 
     let mut hits: Vec<SearchHit> = hit_candidates
         .into_iter()
@@ -386,12 +395,7 @@ pub fn search_with_index(index: &SearchIndex, raw_query: &str) -> MultiDocSearch
                     for term in &query_terms {
                         let tf = line_lower.matches(term).count() as f64;
                         if tf > 0.0 {
-                            let df = index
-                                .term_posting
-                                .get(term)
-                                .map(|p| p.len())
-                                .unwrap_or(1)
-                                .max(1) as f64;
+                            let df = (*df_map.get(term).unwrap_or(&1)).max(1) as f64;
                             let idf = ((n_docs - df + 0.5) / (df + 0.5) + 1.0).ln();
                             let num = tf * (k1 + 1.0);
                             let denom = tf + k1 * (1.0 - b + b * (line.line_words as f64 / avgdl));
@@ -413,6 +417,7 @@ pub fn search_with_index(index: &SearchIndex, raw_query: &str) -> MultiDocSearch
                     }
                 }
             }
+            hit.file_path = hit.file_path.replace('\\', "/");
             hit.score = (total_score * 100.0).round() / 100.0;
             hit
         })
