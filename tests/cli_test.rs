@@ -1,9 +1,13 @@
 use std::process::Command;
 
+fn pankh_cmd() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_pankh"))
+}
+
 #[test]
 fn test_cli_agent_flag() {
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tests/sample.md", "--agent"])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--agent"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -14,8 +18,8 @@ fn test_cli_agent_flag() {
 
 #[test]
 fn test_cli_outline_flag() {
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tests/sample.md", "--outline"])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--outline"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -26,16 +30,8 @@ fn test_cli_outline_flag() {
 
 #[test]
 fn test_cli_code_flag() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--quiet",
-            "--",
-            "tests/sample.md",
-            "--code",
-            "--lang",
-            "rust",
-        ])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--code", "--lang", "rust"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -46,8 +42,8 @@ fn test_cli_code_flag() {
 
 #[test]
 fn test_cli_stats_flag() {
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tests/sample.md", "--stats"])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--stats"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -59,15 +55,8 @@ fn test_cli_stats_flag() {
 
 #[test]
 fn test_cli_max_tokens_flag() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--quiet",
-            "--",
-            "tests/sample.md",
-            "--max-tokens",
-            "15",
-        ])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--max-tokens", "15"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -77,8 +66,8 @@ fn test_cli_max_tokens_flag() {
 
 #[test]
 fn test_cli_diff_clean_flag() {
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tests/sample.md", "--diff-clean"])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--diff-clean"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -90,15 +79,8 @@ fn test_cli_diff_clean_flag() {
 
 #[test]
 fn test_cli_search_flag() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--quiet",
-            "--",
-            "tests/sample.md",
-            "--search",
-            "Installation",
-        ])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--search", "Installation"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -110,15 +92,8 @@ fn test_cli_search_flag() {
 
 #[test]
 fn test_cli_llmstxt_flag() {
-    let output = Command::new("cargo")
-        .args([
-            "run",
-            "--quiet",
-            "--",
-            "tests/sample.md",
-            "--llms-txt",
-            "--json",
-        ])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--llms-txt", "--json"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
@@ -129,8 +104,8 @@ fn test_cli_llmstxt_flag() {
 
 #[test]
 fn test_cli_build_index_flag() {
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tests/sample.md", "--build-index"])
+    let output = pankh_cmd()
+        .args(["tests/sample.md", "--build-index"])
         .output()
         .expect("failed to run CLI");
     assert!(output.status.success());
