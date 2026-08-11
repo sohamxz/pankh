@@ -362,8 +362,8 @@ pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error
 
     let _webview = WebViewBuilder::new()
         .with_html(html_content)
-        .with_ipc_handler(move |req: String| {
-            if req == "open_file" {
+        .with_ipc_handler(move |req: wry::http::Request<String>| {
+            if req.body() == "open_file" {
                 if let Some(picked_path) = rfd::FileDialog::new()
                     .add_filter("Markdown", &["md", "markdown"])
                     .pick_file()
