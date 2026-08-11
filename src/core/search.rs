@@ -35,6 +35,31 @@ type RawHitTuple = (
 
 use crate::core::query::parse_query;
 
+pub fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let len_a = a_chars.len();
+    let len_b = b_chars.len();
+
+    if len_a == 0 {
+        return len_b;
+    }
+    if len_b == 0 {
+        return len_a;
+    }
+
+    let mut row: Vec<usize> = (0..=len_b).collect();
+    for i in 0..len_a {
+        let mut new_row = vec![i + 1; len_b + 1];
+        for j in 0..len_b {
+            let cost = if a_chars[i] == b_chars[j] { 0 } else { 1 };
+            new_row[j + 1] = (row[j + 1] + 1).min(new_row[j] + 1).min(row[j] + cost);
+        }
+        row = new_row;
+    }
+    row[len_b]
+}
+
 /// Hyper-parallel search across multiple Markdown files/directories using Rayon worker threads
 pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchResult {
     let parsed_query = parse_query(raw_query);
@@ -54,31 +79,38 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
         };
     }
 
-    let file_results: Vec<(Vec<RawHitTuple>, usize, usize)> = paths
+    let resolved_files = crate::core::io::collect_markdown_files_from_paths(paths);
+
+    let file_results: Vec<(Vec<RawHitTuple>, usize, usize)> = resolved_files
         .par_iter()
         .filter_map(|path| {
             if let Ok(content) = read_markdown_file_safe(path) {
                 let file_path_str = path.display().to_string();
-
-                if !parsed_query.matches_filters(&file_path_str, &content) {
-                    return None;
-                }
-
                 let outline = extract_outline(&content);
                 let flat_headings = flatten_headings(&outline.headings);
-                let lines: Vec<&str> = content.lines().collect();
 
-                let mut local_hits = Vec::new();
+                let mut local_hits: Vec<RawHitTuple> = Vec::new();
                 let mut local_sections = 0;
                 let mut local_words = 0;
 
-                for (line_idx, line) in lines.iter().enumerate() {
+                for (line_idx, line) in content.lines().enumerate() {
                     let line_lower = line.to_lowercase();
-                    let is_hit = if query_terms.is_empty() {
-                        true
-                    } else {
-                        query_terms.iter().any(|term| line_lower.contains(term))
-                    };
+                    if line_lower.trim().is_empty() {
+                        continue;
+                    }
+
+                    let is_hit = query_terms.iter().any(|term| {
+                        if line_lower.contains(term) {
+                            true
+                        } else if term.len() >= 4 {
+                            line_lower.split_whitespace().any(|word| {
+                                let clean = word.trim_matches(|c: char| !c.is_alphanumeric());
+                                clean.len() >= 3 && levenshtein_distance(term, clean) <= 2
+                            })
+                        } else {
+                            false
+                        }
+                    });
 
                     if is_hit {
                         let line_num = line_idx + 1;
@@ -145,7 +177,6 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
     let k1 = 1.2;
     let b = 0.75;
 
-    // Calculate unique document frequency df(t) for each query term across raw hits
     let mut df_map: HashMap<String, usize> = HashMap::new();
     for term in &query_terms {
         let unique_docs: std::collections::HashSet<&String> = raw_hits
@@ -155,23 +186,46 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
             })
             .map(|(hit, ..)| &hit.file_path)
             .collect();
-        df_map.insert(term.clone(), unique_docs.len());
+        df_map.insert(term.clone(), unique_docs.len().max(1));
     }
 
     let mut hits: Vec<SearchHit> = raw_hits
         .into_iter()
         .map(
             |(mut hit, line_lower, heading_level, heading_title, doc_len)| {
-                let mut total_score = 0.0;
+                let mut total_score: f64 = 0.0;
 
                 for term in &query_terms {
-                    let tf = line_lower.matches(term).count() as f64;
+                    let exact_tf = line_lower.matches(term).count() as f64;
+                    let (tf, similarity_mult) = if exact_tf > 0.0 {
+                        (exact_tf, 1.0)
+                    } else if term.len() >= 4 {
+                        let mut best_sim = 0.0;
+                        let mut count = 0.0;
+                        for word in line_lower.split_whitespace() {
+                            let clean = word.trim_matches(|c: char| !c.is_alphanumeric());
+                            if clean.len() >= 3 {
+                                let dist = levenshtein_distance(term, clean);
+                                if dist <= 2 {
+                                    let sim = 1.0 - (dist as f64 * 0.25);
+                                    if sim > best_sim {
+                                        best_sim = sim;
+                                    }
+                                    count += 1.0;
+                                }
+                            }
+                        }
+                        (count, best_sim)
+                    } else {
+                        (0.0, 1.0)
+                    };
+
                     if tf > 0.0 {
                         let df = (*df_map.get(term).unwrap_or(&1)).max(1) as f64;
                         let idf = ((n_docs - df + 0.5) / (df + 0.5) + 1.0).ln();
                         let num = tf * (k1 + 1.0);
                         let denom = tf + k1 * (1.0 - b + b * (doc_len as f64 / avgdl));
-                        let bm25 = idf * (num / denom);
+                        let bm25 = idf * (num / denom) * similarity_mult;
 
                         let heading_multiplier = if heading_title.contains(term) {
                             match heading_level {
@@ -313,5 +367,33 @@ mod tests {
         for p in paths {
             let _ = std::fs::remove_file(p);
         }
+    }
+
+    #[test]
+    fn test_levenshtein_distance() {
+        assert_eq!(levenshtein_distance("installation", "instalation"), 1);
+        assert_eq!(levenshtein_distance("pankh", "pankh"), 0);
+        assert_eq!(levenshtein_distance("kitten", "sitting"), 3);
+    }
+
+    #[test]
+    fn test_fuzzy_search_typo_tolerance() {
+        let temp_dir = std::env::temp_dir();
+        let f_path = temp_dir.join("fuzzy_test.md");
+        let mut f = File::create(&f_path).unwrap();
+        writeln!(
+            f,
+            "# Installation\n\nRun cargo install --path . to install."
+        )
+        .unwrap();
+
+        let results = search_documents(&[f_path.clone()], "instalation");
+        assert_eq!(results.total_hits, 1);
+        assert!(
+            results.hits[0].line_snippet.contains("Installation")
+                || results.hits[0].line_snippet.contains("install")
+        );
+
+        let _ = std::fs::remove_file(f_path);
     }
 }

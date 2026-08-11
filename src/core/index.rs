@@ -59,93 +59,52 @@ impl Default for SearchIndex {
     }
 }
 
-/// Builds a binary search index across the given paths
+/// Builds or incrementally updates a binary search index across the given paths
 pub fn build_search_index(paths: &[PathBuf]) -> SearchIndex {
-    let file_data: Vec<(IndexedDocMeta, Vec<IndexedLine>)> = paths
-        .par_iter()
-        .filter_map(|path| {
-            if let Ok(metadata) = std::fs::metadata(path) {
-                if let Ok(content) = read_markdown_file_safe(path) {
-                    let mtime_secs = metadata
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
-                    let file_size = metadata.len();
+    let index_path = PathBuf::from(DEFAULT_INDEX_FILENAME);
+    let mut index = if index_path.exists() {
+        load_index_from_file(&index_path).unwrap_or_else(|_| SearchIndex::new())
+    } else {
+        SearchIndex::new()
+    };
 
-                    let doc_meta = IndexedDocMeta {
-                        path: path.clone(),
-                        mtime_secs,
-                        file_size,
-                    };
-
-                    let outline = extract_outline(&content);
-                    let flat_headings = flatten_headings(&outline.headings);
-                    let lines: Vec<&str> = content.lines().collect();
-                    let mut indexed_lines = Vec::new();
-
-                    for (line_idx, line) in lines.iter().enumerate() {
-                        let line_num = line_idx + 1;
-                        let current_heading = flat_headings
-                            .iter()
-                            .rfind(|h| h.start_line <= line_num && line_num <= h.end_line);
-
-                        let (heading_path, heading_level, heading_title, section_tokens) =
-                            match current_heading {
-                                Some(h) => (
-                                    format!("H{}: {}", h.level, h.title),
-                                    h.level,
-                                    h.title.to_lowercase(),
-                                    h.token_count,
-                                ),
-                                None => (String::from("Root Document"), 0, String::new(), 0),
-                            };
-
-                        let line_words = line.split_whitespace().count().max(1);
-                        indexed_lines.push(IndexedLine {
-                            line_number: line_num,
-                            line_snippet: line.trim().to_string(),
-                            line_words,
-                            heading_path,
-                            heading_level,
-                            heading_title,
-                            section_tokens,
-                        });
-                    }
-
-                    return Some((doc_meta, indexed_lines));
-                }
-            }
-            None
-        })
+    let resolved_files = crate::core::io::collect_markdown_files_from_paths(paths);
+    let current_path_strs: std::collections::HashSet<String> = resolved_files
+        .iter()
+        .map(|p| p.display().to_string())
         .collect();
 
-    let mut index = SearchIndex::new();
+    // Remove deleted files from index
+    let existing_keys: Vec<String> = index.docs.keys().cloned().collect();
+    for key in existing_keys {
+        if !current_path_strs.contains(&key) {
+            remove_file_from_index(&mut index, Path::new(&key));
+        }
+    }
 
-    for (doc_meta, indexed_lines) in file_data {
-        let doc_path_str = doc_meta.path.display().to_string();
-        for (l_idx, line) in indexed_lines.iter().enumerate() {
-            index.total_sections += 1;
-            index.total_words += line.line_words;
+    // Re-index only new or modified files
+    for path in resolved_files {
+        let doc_path_str = path.display().to_string();
+        if let Ok(metadata) = std::fs::metadata(&path) {
+            let mtime_secs = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let file_size = metadata.len();
 
-            let line_terms: Vec<String> = line
-                .line_snippet
-                .to_lowercase()
-                .split_whitespace()
-                .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let needs_update = match index.docs.get(&doc_path_str) {
+                Some((existing_meta, _)) => {
+                    existing_meta.mtime_secs != mtime_secs || existing_meta.file_size != file_size
+                }
+                None => true,
+            };
 
-            for term in line_terms {
-                index
-                    .term_posting
-                    .entry(term)
-                    .or_default()
-                    .push((doc_path_str.clone(), l_idx));
+            if needs_update {
+                let _ = update_file_in_index(&mut index, &path);
             }
         }
-        index.docs.insert(doc_path_str, (doc_meta, indexed_lines));
     }
 
     populate_trigram_index(&mut index);

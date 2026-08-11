@@ -72,6 +72,43 @@ pub fn read_markdown_file_safe<P: AsRef<Path>>(path: P) -> Result<String, SafeRe
     Ok(text)
 }
 
+use std::path::PathBuf;
+
+/// Recursively collects all markdown files (.md, .markdown) from given slice of paths/directories
+pub fn collect_markdown_files_from_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut resolved = Vec::new();
+    for p in paths {
+        if p.is_file() {
+            resolved.push(p.clone());
+        } else if p.is_dir() {
+            fn collect_dir(dir: &Path, acc: &mut Vec<PathBuf>) {
+                if let Ok(entries) = fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(ext) = path.extension() {
+                                if ext.eq_ignore_ascii_case("md")
+                                    || ext.eq_ignore_ascii_case("markdown")
+                                {
+                                    acc.push(path);
+                                }
+                            }
+                        } else if path.is_dir() {
+                            let name = path.file_name().unwrap_or_default().to_string_lossy();
+                            if !name.starts_with('.') && name != "target" && name != "node_modules"
+                            {
+                                collect_dir(&path, acc);
+                            }
+                        }
+                    }
+                }
+            }
+            collect_dir(p, &mut resolved);
+        }
+    }
+    resolved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
