@@ -312,7 +312,7 @@ pub fn render_rich_markdown<'a>(
                     } else {
                         line_spans.push(Span::styled(
                             raw_line.to_string(),
-                            Style::default().fg(Color::Reset),
+                            Style::default().fg(theme.text_color()),
                         ));
                     }
 

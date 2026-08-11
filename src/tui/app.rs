@@ -114,7 +114,7 @@ impl AppTheme {
             AppTheme::OceanDark => Color::Blue,
             AppTheme::Dracula => Color::Magenta,
             AppTheme::Gruvbox => Color::Yellow,
-            AppTheme::CleanLight => Color::DarkGray,
+            AppTheme::CleanLight => Color::Rgb(255, 180, 0),
         }
     }
 
@@ -123,21 +123,21 @@ impl AppTheme {
             AppTheme::OceanDark => Color::Cyan,
             AppTheme::Dracula => Color::LightRed,
             AppTheme::Gruvbox => Color::Rgb(251, 73, 52),
-            AppTheme::CleanLight => Color::Blue,
+            AppTheme::CleanLight => Color::Rgb(255, 215, 0),
         }
     }
 
     pub fn text_color(&self) -> Color {
         match self {
-            AppTheme::CleanLight => Color::Black,
+            AppTheme::CleanLight => Color::Rgb(240, 245, 250),
             _ => Color::White,
         }
     }
 
     pub fn syntect_theme(&self) -> &'static str {
         match self {
-            AppTheme::CleanLight => "base16-ocean.light",
-            AppTheme::Gruvbox | AppTheme::Dracula => "base16-eighties.dark",
+            AppTheme::Gruvbox => "base16-eighties.dark",
+            AppTheme::Dracula => "base16-mocha.dark",
             _ => "base16-ocean.dark",
         }
     }
