@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tao::{
     event::{Event, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -42,7 +42,7 @@ pub fn generate_gui_html(content: &str, file_path: Option<&Path>) -> String {
             .replace(' ', "-");
         let indent = (node.level.saturating_sub(1)) * 12;
         toc_html.push_str(&format!(
-            r#"<a href="#heading-{}" class="toc-link level-{}" style="padding-left: {}px;">{}</a>"#,
+            r##"<a href="#heading-{}" class="toc-link level-{}" style="padding-left: {}px;">{}</a>"##,
             slug, node.level, indent + 8, html_escape(&node.title)
         ));
     }
@@ -272,6 +272,7 @@ pub fn generate_gui_html(content: &str, file_path: Option<&Path>) -> String {
       <span class="badge">📝 Words: <strong>{}</strong></span>
     </div>
     <div class="controls">
+      <button onclick="openFile()">📂 Open File</button>
       <select id="themeSelect" onchange="setTheme(this.value)">
         <option value="ocean">Ocean Dark 🌙</option>
         <option value="dracula">Dracula 🧛</option>
@@ -303,6 +304,17 @@ pub fn generate_gui_html(content: &str, file_path: Option<&Path>) -> String {
       const sidebar = document.getElementById('tocSidebar');
       sidebar.style.display = sidebar.style.display === 'none' ? 'flex' : 'none';
     }}
+    function openFile() {{
+      if (window.ipc) {{
+        window.ipc.postMessage('open_file');
+      }}
+    }}
+    document.addEventListener('keydown', function(e) {{
+      if (e.ctrlKey && e.key === 'o') {{
+        e.preventDefault();
+        openFile();
+      }}
+    }});
   </script>
 </body>
 </html>"#,
@@ -310,7 +322,7 @@ pub fn generate_gui_html(content: &str, file_path: Option<&Path>) -> String {
         html_escape(&path_str),
         html_escape(&doc_title),
         stats.estimated_tokens,
-        stats.word_count,
+        stats.words,
         toc_html,
         rendered_body
     )
@@ -325,7 +337,7 @@ fn html_escape(input: &str) -> String {
 }
 
 /// Launches Pankh Native Desktop Reader powered by wry (zero-overhead OS webview)
-pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let event_loop = EventLoopBuilder::new().build();
 
     let initial_file = file_path.map(|p| p.to_path_buf());
@@ -333,7 +345,7 @@ pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error
         read_markdown_file_safe(path)
             .unwrap_or_else(|_| "# Welcome to Pankh\nCould not open specified file.".to_string())
     } else {
-        "# Welcome to Pankh Reader 🪶\n\nDrag & drop a Markdown file here or open Pankh with `pankh -g README.md` to begin reading.".to_string()
+        "# Welcome to Pankh Reader 🪶\n\nDrag & drop a Markdown file here or click **Open File** (Ctrl+O) to begin reading.".to_string()
     };
 
     let title = initial_file
@@ -350,6 +362,18 @@ pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error
 
     let _webview = WebViewBuilder::new()
         .with_html(html_content)
+        .with_ipc_handler(move |req: String| {
+            if req == "open_file" {
+                if let Some(picked_path) = rfd::FileDialog::new()
+                    .add_filter("Markdown", &["md", "markdown"])
+                    .pick_file()
+                {
+                    if let Ok(new_content) = read_markdown_file_safe(&picked_path) {
+                        let _new_html = generate_gui_html(&new_content, Some(&picked_path));
+                    }
+                }
+            }
+        })
         .build(&window)?;
 
     event_loop.run(move |event, _, control_flow| {

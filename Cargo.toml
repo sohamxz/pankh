@@ -23,6 +23,7 @@ rayon = "1.10"
 once_cell = "1.19"
 wry = "0.47"
 tao = "0.30"
+rfd = "0.15"
 
 [profile.release]
 opt-level = 3
