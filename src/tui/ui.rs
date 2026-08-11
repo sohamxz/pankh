@@ -93,13 +93,32 @@ fn draw_main_viewport(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_status_bar(f: &mut Frame, area: Rect, app: &App) {
-    let status_text = match &app.status_message {
-        Some(msg) => msg.clone(),
-        None => format!(
-            " Line: {} | Est. Tokens: {} | [j/k/g/G]: Scroll | [Tab/b]: TOC | [a]: Copy Clean | [/]: Search | [n/N]: Match | [q]: Quit",
-            app.scroll_offset + 1,
-            app.estimated_tokens
-        ),
+    let status_text = if app.search_active {
+        format!(
+            " [Search Mode] Query: \"{}\"_ | [Enter]: Find | [Esc]: Cancel Search | [Ctrl+C]: Quit",
+            app.search_query
+        )
+    } else {
+        match &app.status_message {
+            Some(msg) => msg.clone(),
+            None => {
+                if !app.search_query.is_empty() {
+                    format!(
+                        " Search: \"{}\" ({}/{} matches) | [n/N]: Match | [Esc/c]: Clear Search | [j/k]: Scroll | [q]: Quit",
+                        app.search_query,
+                        if app.search_matches.is_empty() { 0 } else { app.current_search_match + 1 },
+                        app.search_matches.len()
+                    )
+                } else {
+                    format!(
+                        " Line: {}/{} | Est. Tokens: {} | [j/k/g/G]: Scroll | [Tab/b]: TOC | [a]: Copy Clean | [/]: Search | [q]: Quit",
+                        app.scroll_offset + 1,
+                        app.rendered_line_count,
+                        app.estimated_tokens
+                    )
+                }
+            }
+        }
     };
 
     let p = Paragraph::new(Line::from(Span::styled(

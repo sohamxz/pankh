@@ -82,6 +82,7 @@ pub struct App {
     pub raw_text: String,
     pub cleaned_text: String,
     pub scroll_offset: u16,
+    pub rendered_line_count: usize,
     pub show_toc: bool,
     pub selected_toc_index: usize,
     pub headings: Vec<HeadingNode>,
@@ -104,11 +105,14 @@ impl App {
         let cleaned = clean_markdown(content);
         let flat_headings = flatten_headings(&outline.headings);
         let links = extract_document_links(content);
+        let rendered_lines = crate::tui::render::render_rich_markdown(content, "");
+        let rendered_line_count = rendered_lines.len();
 
         App {
             raw_text: content.to_string(),
             cleaned_text: cleaned,
             scroll_offset: 0,
+            rendered_line_count,
             show_toc: false,
             selected_toc_index: 0,
             headings: flat_headings,
@@ -133,9 +137,10 @@ impl App {
                 let cleaned = clean_markdown(&new_content);
                 let flat_headings = flatten_headings(&outline.headings);
                 let links = extract_document_links(&new_content);
-
                 self.raw_text = new_content;
                 self.cleaned_text = cleaned;
+                self.rendered_line_count =
+                    crate::tui::render::render_rich_markdown(&self.raw_text, "").len();
                 self.headings = flat_headings;
                 self.links = links;
                 self.estimated_tokens = stats.estimated_tokens;
@@ -145,8 +150,7 @@ impl App {
     }
 
     pub fn scroll_down(&mut self, amount: u16) {
-        let line_count = self.raw_text.lines().count() as u16;
-        let max_scroll = line_count.saturating_sub(1);
+        let max_scroll = self.rendered_line_count.saturating_sub(1) as u16;
         self.scroll_offset = self.scroll_offset.saturating_add(amount).min(max_scroll);
     }
 
@@ -159,8 +163,8 @@ impl App {
     }
 
     pub fn jump_to_bottom(&mut self) {
-        let line_count = self.raw_text.lines().count() as u16;
-        self.scroll_offset = line_count.saturating_sub(1);
+        let max_scroll = self.rendered_line_count.saturating_sub(1) as u16;
+        self.scroll_offset = max_scroll;
     }
 
     pub fn follow_current_line_link(&mut self) {
@@ -232,6 +236,8 @@ impl App {
 
         self.raw_text = content.to_string();
         self.cleaned_text = cleaned;
+        self.rendered_line_count =
+            crate::tui::render::render_rich_markdown(&self.raw_text, "").len();
         self.scroll_offset = 0;
         self.headings = flat_headings;
         self.links = links;
@@ -250,12 +256,14 @@ impl App {
 
             self.raw_text = prev_text;
             self.cleaned_text = cleaned;
+            self.rendered_line_count =
+                crate::tui::render::render_rich_markdown(&self.raw_text, "").len();
             self.scroll_offset = prev_scroll;
             self.headings = flat_headings;
             self.links = links;
             self.active_path = prev_path;
             self.estimated_tokens = stats.estimated_tokens;
-            self.status_message = Some(format!("Returned to: {}", title));
+            self.status_message = Some(format!("Backtracked to: {}", title));
         } else {
             self.status_message = Some("Already at root document.".to_string());
         }
@@ -336,15 +344,26 @@ impl App {
         }
     }
 
+    pub fn clear_search(&mut self) {
+        self.search_active = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.current_search_match = 0;
+        self.status_message = Some("Search cleared".to_string());
+    }
+
     pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         if self.search_active {
             match code {
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.should_quit = true;
+                }
                 KeyCode::Enter => {
                     self.search_active = false;
                     self.update_search_matches();
                 }
                 KeyCode::Esc => {
-                    self.search_active = false;
+                    self.clear_search();
                 }
                 KeyCode::Backspace => {
                     self.search_query.pop();
@@ -358,11 +377,21 @@ impl App {
         }
 
         match code {
-            KeyCode::Char('q') | KeyCode::Esc => {
+            KeyCode::Char('q') => {
                 self.should_quit = true;
             }
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
+            }
+            KeyCode::Esc => {
+                if !self.search_query.is_empty() || !self.search_matches.is_empty() {
+                    self.clear_search();
+                } else {
+                    self.should_quit = true;
+                }
+            }
+            KeyCode::Char('c') if !self.search_query.is_empty() => {
+                self.clear_search();
             }
             KeyCode::Enter => {
                 self.follow_current_line_link();
