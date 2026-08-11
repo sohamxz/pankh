@@ -536,7 +536,8 @@ mod tests {
 
         // Test boundary clamping
         app.scroll_down(100);
-        assert_eq!(app.scroll_offset, 9); // 10 lines -> max offset 9
+        let max_expected = app.rendered_line_count.saturating_sub(1) as u16;
+        assert_eq!(app.scroll_offset, max_expected);
 
         assert!(!app.show_toc);
         app.toggle_toc();
