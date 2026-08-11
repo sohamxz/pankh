@@ -7,7 +7,6 @@ use ratatui::{
 };
 
 use crate::tui::app::App;
-use crate::tui::render::render_rich_markdown;
 
 pub fn draw_ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
@@ -75,8 +74,6 @@ fn draw_toc_sidebar(f: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_main_viewport(f: &mut Frame, area: Rect, app: &App) {
-    let lines = render_rich_markdown(&app.raw_text, &app.search_query, app.theme);
-
     let title = if app.search_active {
         format!(" Search: {}_ ", app.search_query)
     } else if let Some(ref path) = app.active_path {
@@ -85,7 +82,7 @@ fn draw_main_viewport(f: &mut Frame, area: Rect, app: &App) {
         format!(" Pankh Reader ({}) ", app.theme.name())
     };
 
-    let paragraph = Paragraph::new(lines)
+    let paragraph = Paragraph::new(app.rendered_lines_cache.clone())
         .block(
             Block::default()
                 .title(title)

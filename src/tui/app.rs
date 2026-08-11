@@ -167,6 +167,7 @@ pub struct App {
     pub fuzzy_files: Vec<(PathBuf, usize)>,
     pub fuzzy_matches: Vec<(PathBuf, usize)>,
     pub fuzzy_selected_index: usize,
+    pub rendered_lines_cache: Vec<ratatui::text::Line<'static>>,
 }
 
 impl App {
@@ -177,8 +178,8 @@ impl App {
         let flat_headings = flatten_headings(&outline.headings);
         let links = extract_document_links(content);
         let theme = AppTheme::OceanDark;
-        let rendered_lines = crate::tui::render::render_rich_markdown(content, "", theme);
-        let rendered_line_count = rendered_lines.len();
+        let rendered_lines_cache = crate::tui::render::render_rich_markdown(content, "", theme);
+        let rendered_line_count = rendered_lines_cache.len();
 
         App {
             raw_text: content.to_string(),
@@ -204,12 +205,23 @@ impl App {
             fuzzy_files: Vec::new(),
             fuzzy_matches: Vec::new(),
             fuzzy_selected_index: 0,
+            rendered_lines_cache,
         }
     }
 
+    pub fn refresh_rendered_lines(&mut self) {
+        self.rendered_lines_cache = crate::tui::render::render_rich_markdown(
+            &self.raw_text,
+            &self.search_query,
+            self.theme,
+        );
+        self.rendered_line_count = self.rendered_lines_cache.len();
+    }
+
     pub fn reload_from_path(&mut self) {
-        if let Some(ref path) = self.active_path {
-            if let Ok(new_content) = crate::core::io::read_markdown_file_safe(path) {
+        let path_opt = self.active_path.clone();
+        if let Some(path) = path_opt {
+            if let Ok(new_content) = crate::core::io::read_markdown_file_safe(&path) {
                 let outline = extract_outline(&new_content);
                 let stats = calculate_stats(&new_content);
                 let cleaned = clean_markdown(&new_content);
@@ -217,11 +229,10 @@ impl App {
                 let links = extract_document_links(&new_content);
                 self.raw_text = new_content;
                 self.cleaned_text = cleaned;
-                self.rendered_line_count =
-                    crate::tui::render::render_rich_markdown(&self.raw_text, "", self.theme).len();
                 self.headings = flat_headings;
                 self.links = links;
                 self.estimated_tokens = stats.estimated_tokens;
+                self.refresh_rendered_lines();
                 self.status_message = Some(format!("[Watcher] Live reloaded {}", path.display()));
             }
         }
@@ -314,13 +325,12 @@ impl App {
 
         self.raw_text = content.to_string();
         self.cleaned_text = cleaned;
-        self.rendered_line_count =
-            crate::tui::render::render_rich_markdown(&self.raw_text, "", self.theme).len();
         self.scroll_offset = 0;
         self.headings = flat_headings;
         self.links = links;
         self.active_path = new_path;
         self.estimated_tokens = stats.estimated_tokens;
+        self.refresh_rendered_lines();
         self.status_message = Some(format!("Loaded document: {}", title));
     }
 
@@ -334,13 +344,12 @@ impl App {
 
             self.raw_text = prev_text;
             self.cleaned_text = cleaned;
-            self.rendered_line_count =
-                crate::tui::render::render_rich_markdown(&self.raw_text, "", self.theme).len();
             self.scroll_offset = prev_scroll;
             self.headings = flat_headings;
             self.links = links;
             self.active_path = prev_path;
             self.estimated_tokens = stats.estimated_tokens;
+            self.refresh_rendered_lines();
             self.status_message = Some(format!("Backtracked to: {}", title));
         } else {
             self.status_message = Some("Already at root document.".to_string());
@@ -349,6 +358,7 @@ impl App {
 
     pub fn update_search_matches(&mut self) {
         self.search_matches.clear();
+        self.refresh_rendered_lines();
         if self.search_query.is_empty() {
             return;
         }
@@ -424,6 +434,7 @@ impl App {
 
     pub fn cycle_theme(&mut self) {
         self.theme = self.theme.next();
+        self.refresh_rendered_lines();
         self.status_message = Some(format!("Theme set to: {}", self.theme.name()));
     }
 
@@ -523,6 +534,7 @@ impl App {
         self.search_query.clear();
         self.search_matches.clear();
         self.current_search_match = 0;
+        self.refresh_rendered_lines();
         self.status_message = Some("Search cleared".to_string());
     }
 

@@ -8,18 +8,22 @@ use syntect::parsing::SyntaxSet;
 use unicode_width::UnicodeWidthStr;
 
 use crate::core::parser::parse_markdown;
+use once_cell::sync::Lazy;
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
 
 use crate::tui::app::AppTheme;
 
+pub static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
+pub static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
+
 /// Renders raw Markdown into rich styled Ratatui Lines with header hierarchy, blockquotes, nested lists, task checkboxes, tables, and syntax highlighting
-pub fn render_rich_markdown<'a>(
-    raw_text: &'a str,
+pub fn render_rich_markdown(
+    raw_text: &str,
     search_query: &str,
     theme: AppTheme,
-) -> Vec<Line<'a>> {
-    let ps = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
+) -> Vec<Line<'static>> {
+    let ps = &*SYNTAX_SET;
+    let ts = &*THEME_SET;
     let syntect_theme = &ts.themes[theme.syntect_theme()];
 
     let mut lines: Vec<Line> = Vec::new();
