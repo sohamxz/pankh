@@ -1,40 +1,42 @@
-# Pankh (🪶)
+# Pankh (🪶) v0.1.1
 > **Featherweight Markdown Reader for Humans & AI Agents**
 
-Pankh (*Feather* in Hindi) is an ultra-fast, dual-modality Rust CLI binary & Model Context Protocol (MCP) server engineered for developers and AI coding agents.
+Pankh (*Feather* in Hindi) is an ultra-fast, multi-modal Rust CLI binary, Terminal UI (TUI), Native Desktop GUI, and Model Context Protocol (MCP) server engineered for developers and AI coding agents.
 
 ---
 
 ## Features
 
+- **Optional Native Desktop GUI (`pankh -g [file]`):**
+  - **Zero Bundle Overhead (`wry` + `tao`):** Reuses your OS's built-in webview engine (WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux) — adding **0MB browser engine bundle size** unlike heavy Electron apps.
+  - **Native OS File Picker (`rfd`):** Click **"📂 Open File"** or press **`Ctrl+O`** to open native Windows File Explorer / macOS Finder file selector.
+  - **Glassmorphic Navigation Bar:** Real-time token count (`⚡ Tokens`), word count (`📝 Words`), theme selector dropdown, and collapsible Table of Contents (TOC) sidebar.
+
 - **Rich Interactive TUI Reader (Human Mode):**
   - Minimalist dark terminal UI powered by `ratatui` with header level hierarchy styling ($H1 \dots H6$).
   - **Interactive Link Navigation:** Press `Enter` on any line with Markdown links to jump to section anchors (`#heading`) or load relative Markdown files (`doc.md`). Press `Backspace` to navigate back through file history.
+  - **Fuzzy File Finder (`Ctrl+P` / `f`):** Instant repository-wide Markdown fuzzy file search modal.
+  - **Theme Switcher (`t`):** Toggle between Ocean Dark 🌙, Dracula 🧛, Gruvbox 🌲, and Clean Light ☀️ themes with 0ms scrolling latency.
+  - **Code Snippet Copy (`y`):** One-key code block copying directly to system clipboard.
   - **Live File Watcher (`pankh README.md --watch`):** Live-reloads content on save while preserving scroll offset and Table of Contents state.
   - Formatted Unicode grid tables (`┌──────┬──────┐`).
   - Interactive task list checkboxes (`[✓]` / `[ ]`).
   - Nested list bullet symbols (`*`, `-`, `+`).
   - `syntect` syntax highlighting for fenced code blocks.
   - Vim navigation shortcuts (`g`/`G` top/bottom, `Ctrl+u`/`Ctrl+d` half page, `n`/`N` next/prev search result match).
-  - Native terminal mouse wheel scrolling and Table of Contents (TOC) sidebar (`Tab` / `b`).
-  - Quick clean text clipboard copy (`a`).
 
 - **Real-Time Auto-Indexing MCP Daemon:**
-  - `pankh mcp` spawns a real-time background file watcher thread that updates shared `Arc<RwLock<SearchIndex>>` state on file additions, edits, or removals.
+  - `pankh --mcp` spawns a real-time background file watcher thread that updates shared `Arc<RwLock<SearchIndex>>` state on file additions, edits, or removals.
   - Emits JSON-RPC `notifications/resources/updated` notifications to connected LLM clients (Cursor, Claude Desktop, Antigravity) for live context sync.
 
-- **Advanced Query Syntax & Trigram Search Engine:**
-  - Boolean AST parser supporting field filters (`path:docs/`, `ext:md`, `lang:rs`, `dir:tests`), exact phrase matching (`"phrase"`), and negated exclusions (`-deprecated`).
-  - Integrated character trigram posting index (`trigram_posting`) with sub-2ms Jaccard similarity fallback for typo-tolerant fuzzy matching.
+- **Levenshtein Fuzzy BM25 Relevance Search Engine:**
+  - Typo-tolerant BM25 search matching queries with misspellings (e.g. `pankh -S "instalation"` matches `"Installation"`).
+  - Exact hits receive full Okapi score ($1.0\times$), while fuzzy matches receive similarity-weighted Okapi scores ($\le 2$ edit distance).
+  - Advanced boolean AST query parser supporting field filters (`path:docs/`, `ext:md`, `lang:rs`, `dir:tests`), exact phrase matching (`"phrase"`), and negated exclusions (`-deprecated`).
 
-- **Pre-computed Binary Search Indexing (`pankh --build-index`):**
-  - Build `.pankh_index.bin` for instant sub-5ms BM25 search across 10,000+ file monorepos.
-  - Automatic detection loads the binary index instantly when running `pankh -S "query"`.
-
-- **Hyper-Parallel BM25 Relevance Search Engine (`rayon`):**
-  - Multi-threaded parallel search across single files, multiple files, or entire directory trees (`pankh -S "query" docs/`).
-  - Powered by Okapi BM25 relevance scoring ($k_1=1.2, b=0.75$) with Heading Title multipliers ($H1=3.0\times, H2=2.5\times, H3=2.0\times$) and dynamic corpus $df(t)$ calculation.
-  - Maps matches to file path, line number, heading context, snippet, and section token count.
+- **Incremental Binary Search Indexing (`pankh --build-index`):**
+  - Builds `.pankh_index.bin` for instant sub-5ms BM25 search across 10,000+ file monorepos.
+  - Incremental update system compares modification timestamps (`mtime_secs`) and file sizes, re-indexing only new or modified files.
 
 - **LLM Cost Estimator:**
   - Calculates estimated input token costs and dollar savings across `--stats` and `--diff-clean`.
@@ -49,12 +51,6 @@ Pankh (*Feather* in Hindi) is an ultra-fast, dual-modality Rust CLI binary & Mod
   - Pure AST Event Stream Transformer (`pulldown-cmark`) strips visual badge links (`img.shields.io`), HTML comments (`<!-- ... -->`), raw SVGs, and URL tracking parameters (`utm_*`, `ref=`, `spm=`).
   - Reduces LLM prompt token consumption by 20% to 40%.
   - `--max-tokens <N>` heading-aware budget chunking slices large documents at section boundaries without breaking code blocks or paragraphs mid-sentence.
-  - Multi-file pipeline support (`pankh doc1.md doc2.md --agent`).
-
-- **Model Context Protocol (MCP) Server:**
-  - Stdio JSON-RPC 2.0 MCP server (`pankh --mcp`) compatible with Claude Desktop, Cursor, and Antigravity.
-  - **7 MCP Tools:** `read_clean_markdown`, `get_markdown_outline`, `read_markdown_section`, `extract_code_blocks`, `search_markdown_sections`, `chunk_markdown`, `estimate_tokens`.
-  - **MCP Resources:** Access local Markdown files dynamically via `file:///` URIs.
 
 ---
 
@@ -68,11 +64,23 @@ cd pankh
 cargo install --path .
 ```
 
+Alternatively, download single pre-compiled executables for Windows (`pankh-windows.exe`), macOS (`pankh-macos`), or Linux (`pankh-linux`) from [GitHub Releases](https://github.com/sohamxz/pankh/releases).
+
 ---
 
 ## Usage
 
-### 1. Human Interactive TUI Reader
+### 1. Optional Native Desktop GUI
+
+```bash
+# Open README.md in Native Desktop GUI
+pankh -g README.md
+
+# Open Desktop GUI to pick a file
+pankh -g
+```
+
+### 2. Human Interactive TUI Reader
 
 ```bash
 # Open document in TUI
@@ -82,15 +90,34 @@ pankh README.md
 pankh README.md --watch
 ```
 
+### 3. TUI Keybindings
+
+| Key | Action |
+| :--- | :--- |
+| **`j` / `k`** | Scroll Down / Up |
+| **`g` / `G`** | Jump to Top / Bottom |
+| **`Ctrl+d` / `Ctrl+u`** | Scroll Half Page Down / Up |
+| **`/`** | Focus Search Input |
+| **`n` / `N`** | Next / Previous Search Match |
+| **`t`** | Cycle Theme (Ocean Dark, Dracula, Gruvbox, Clean Light) |
+| **`Tab` / `b`** | Toggle Table of Contents (TOC) Sidebar |
+| **`Ctrl+P` / `f`** | Open Repository Fuzzy File Finder |
+| **`y`** | Copy Focused Code Block to Clipboard |
+| **`a`** | Copy Clean Token-Thrifty Text to Clipboard |
+| **`Enter`** | Follow Markdown Link / Jump to Section Anchor |
+| **`Backspace`** | Backtrack File History |
+| **`Esc`** | Clear Search / Close Overlay / Quit |
+| **`q`** | Quit Pankh |
+
 ---
 
-### 2. Instant Pre-computed Search & Advanced Query Syntax
+### 4. Search & Agent Commands
 
 ```bash
 # Build pre-computed binary search index for instant sub-5ms search across monorepos
 pankh docs/ --build-index
 
-# BM25 Relevance Search with field filters and exact phrase matching
+# BM25 Relevance Search with Levenshtein fuzzy matching and field filters
 pankh -S 'path:docs/ "installation guide" -deprecated' docs/ [--json]
 
 # Auto-regenerate llms.txt & llms-full.txt whenever documentation changes
@@ -99,7 +126,7 @@ pankh --llms-txt docs/ --watch
 # Display stats with LLM input cost estimation
 pankh README.md --stats [--price-per-m 2.50]
 
-# Output token-thrifty clean markdown
+# Output token-thrifty clean markdown for AI agents
 pankh README.md --agent
 ```
 
@@ -111,14 +138,15 @@ Pankh is modularly structured into core submodules:
 
 - `pankh::core::agent`: AST Event Stream Cleaner & Diff Generator.
 - `pankh::core::chunker`: Heading-Aware Token Budget Document Chunker.
-- `pankh::core::search`: Hyper-Parallel BM25 Relevance Search Engine (`rayon`).
+- `pankh::core::search`: Hyper-Parallel Levenshtein Fuzzy BM25 Relevance Search Engine (`rayon`).
 - `pankh::core::index`: Pre-computed Search Indexing Engine (`.pankh_index.bin`) & Trigram Posting Storage.
 - `pankh::core::query`: Advanced Query AST Parser & Field Filter Matcher (`path:`, `ext:`, `lang:`, `dir:`).
 - `pankh::core::llmstxt`: `llms.txt` & `llms-full.txt` AI Documentation Generator.
 - `pankh::core::pricing`: Dynamic Future-Proof LLM Cost Estimator.
 - `pankh::core::watcher`: Cross-Platform File & Directory Watcher (`notify`).
 - `pankh::core::io`: Safe File Reader (50MB cap, null byte binary detector, lossy UTF-8).
-- `pankh::tui`: Ratatui Terminal Interface with Rich AST Markdown Renderer, Interactive Link Navigation, Vim Motions, and Panic Hook.
+- `pankh::gui`: Ultra-Lightweight Native Desktop GUI Engine (`wry` + `tao` + `rfd`).
+- `pankh::tui`: Ratatui Terminal Interface with Rich AST Markdown Renderer, Render Line Caching, Interactive Link Navigation, Vim Motions, and Panic Hook.
 - `pankh::mcp`: Stdio JSON-RPC 2.0 MCP Protocol Server & Real-time Auto-Indexing Daemon.
 
 ---
