@@ -100,3 +100,23 @@ async fn test_mcp_server_state_auto_indexing() {
 
     let _ = std::fs::remove_dir_all(temp_dir);
 }
+
+#[tokio::test]
+async fn test_mcp_llms_txt_resources_and_tools() {
+    let list_req = r#"{"jsonrpc":"2.0","id":11,"method":"resources/list","params":{}}"#;
+    let list_res = handle_jsonrpc_message(list_req).await.unwrap().unwrap();
+    assert!(list_res.contains("llms://index"));
+    assert!(list_res.contains("llms://full"));
+
+    let read_index_req =
+        r#"{"jsonrpc":"2.0","id":12,"method":"resources/read","params":{"uri":"llms://index"}}"#;
+    let read_index_res = handle_jsonrpc_message(read_index_req)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(read_index_res.contains("Project Documentation Index"));
+
+    let tool_req = r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"generate_llms_txt","arguments":{}}}"#;
+    let tool_res = handle_jsonrpc_message(tool_req).await.unwrap().unwrap();
+    assert!(tool_res.contains("Successfully generated llms.txt"));
+}

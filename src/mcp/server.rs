@@ -85,6 +85,32 @@ pub fn validate_mcp_path(requested: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// Recursively collects markdown files in workspace directory
+pub fn collect_workspace_markdown_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    fn scan_dir(dir: &Path, acc: &mut Vec<PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(ext) = p.extension() {
+                        if ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown") {
+                            acc.push(p);
+                        }
+                    }
+                } else if p.is_dir() {
+                    let name = p.file_name().unwrap_or_default().to_string_lossy();
+                    if !name.starts_with('.') && name != "target" && name != "node_modules" {
+                        scan_dir(&p, acc);
+                    }
+                }
+            }
+        }
+    }
+    scan_dir(root, &mut files);
+    files
+}
+
 /// Handles an incoming JSON-RPC message string using default ServerState
 pub async fn handle_jsonrpc_message(raw: &str) -> anyhow::Result<Option<String>> {
     let state = ServerState::new(".");
@@ -237,6 +263,18 @@ pub async fn handle_jsonrpc_message_with_state(
                 "result": {
                     "resources": [
                         {
+                            "uri": "llms://index",
+                            "name": "Project llms.txt Index",
+                            "mimeType": "text/markdown",
+                            "description": "Standardized llms.txt summary index of workspace documentation"
+                        },
+                        {
+                            "uri": "llms://full",
+                            "name": "Project llms-full.txt Spec",
+                            "mimeType": "text/markdown",
+                            "description": "Full concatenated AST-cleaned project documentation payload"
+                        },
+                        {
                             "uri": "file:///path/to/markdown.md",
                             "name": "Local Markdown Document",
                             "mimeType": "text/markdown",
@@ -249,6 +287,33 @@ pub async fn handle_jsonrpc_message_with_state(
         "resources/read" => {
             let params = msg.get("params").cloned().unwrap_or(Value::Null);
             let uri = params.get("uri").and_then(|u| u.as_str()).unwrap_or("");
+
+            if uri == "llms://index" || uri == "llms://full" {
+                let paths = collect_workspace_markdown_files(Path::new("."));
+                let output = crate::core::llmstxt::generate_llmstxt(&paths);
+                let text = if uri == "llms://index" {
+                    output.index_content
+                } else {
+                    output.full_content
+                };
+                return Ok(Some(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "contents": [
+                                {
+                                    "uri": uri,
+                                    "mimeType": "text/markdown",
+                                    "text": text
+                                }
+                            ]
+                        }
+                    })
+                    .to_string(),
+                ));
+            }
+
             let canonical_path = match validate_mcp_path(uri) {
                 Ok(p) => p,
                 Err(err_msg) => {
@@ -367,6 +432,16 @@ pub async fn handle_jsonrpc_message_with_state(
                                 },
                                 "required": ["path"]
                             }
+                        },
+                        {
+                            "name": "generate_llms_txt",
+                            "description": "Generates standardized llms.txt index and llms-full.txt combined project documentation payload",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "target_dir": { "type": "string", "description": "Optional target directory path (defaults to current workspace)" }
+                                }
+                            }
                         }
                     ]
                 }
@@ -376,6 +451,45 @@ pub async fn handle_jsonrpc_message_with_state(
             let params = msg.get("params").cloned().unwrap_or(Value::Null);
             let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(Value::Null);
+
+            if name == "generate_llms_txt" {
+                let target_dir_str = args
+                    .get("target_dir")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or(".");
+                let target_path = PathBuf::from(target_dir_str);
+                let paths = collect_workspace_markdown_files(Path::new("."));
+                let output = crate::core::llmstxt::generate_llmstxt(&paths);
+                let result_msg = if let Ok((idx_path, full_path)) =
+                    crate::core::llmstxt::write_llmstxt_to_dir(&output, &target_path)
+                {
+                    format!(
+                        "Successfully generated llms.txt ({}) and llms-full.txt ({})\nFiles processed: {}\nTokens saved: {}",
+                        idx_path.display(),
+                        full_path.display(),
+                        output.files_processed,
+                        output.tokens_saved
+                    )
+                } else {
+                    serde_json::to_string_pretty(&output).unwrap_or_default()
+                };
+
+                return Ok(Some(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": result_msg
+                                }
+                            ]
+                        }
+                    })
+                    .to_string(),
+                ));
+            }
 
             let raw_path = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
 

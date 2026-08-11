@@ -79,6 +79,24 @@ pub fn generate_llmstxt(paths: &[PathBuf]) -> LlmsTxtOutput {
     }
 }
 
+/// Writes generated llms.txt and llms-full.txt files to target output directory
+pub fn write_llmstxt_to_dir(
+    output: &LlmsTxtOutput,
+    target_dir: &std::path::Path,
+) -> std::io::Result<(PathBuf, PathBuf)> {
+    if !target_dir.exists() {
+        std::fs::create_dir_all(target_dir)?;
+    }
+
+    let index_path = target_dir.join(DEFAULT_LLMS_TXT_FILENAME);
+    let full_path = target_dir.join(DEFAULT_LLMS_FULL_TXT_FILENAME);
+
+    std::fs::write(&index_path, &output.index_content)?;
+    std::fs::write(&full_path, &output.full_content)?;
+
+    Ok((index_path, full_path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

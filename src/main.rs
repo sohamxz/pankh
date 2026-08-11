@@ -12,6 +12,7 @@ use core::agent::{
 };
 use core::chunker::chunk_markdown;
 use core::io::read_markdown_file_safe;
+use core::llmstxt::{generate_llmstxt, write_llmstxt_to_dir};
 use core::search::search_documents;
 
 #[derive(Parser, Debug)]
@@ -337,6 +338,44 @@ async fn main() -> anyhow::Result<()> {
             );
             for heading in &outline.headings {
                 print_heading_tree_node(heading);
+            }
+        }
+        return Ok(());
+    }
+
+    // Mode 7: --llms-txt flag
+    if cli.llms_txt {
+        let targets = if resolved_files.is_empty() && !cli.files.is_empty() {
+            cli.files.clone()
+        } else if resolved_files.is_empty() {
+            vec![PathBuf::from(".")]
+        } else {
+            resolved_files.clone()
+        };
+
+        let output = generate_llmstxt(&targets);
+        if cli.json {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            let target_dir = PathBuf::from(".");
+            match write_llmstxt_to_dir(&output, &target_dir) {
+                Ok((idx_path, full_path)) => {
+                    println!(
+                        "Successfully generated llms.txt ('{}') and llms-full.txt ('{}')",
+                        idx_path.display(),
+                        full_path.display()
+                    );
+                    println!(
+                        "Processed {} files | Raw Tokens: {} | Clean Tokens: {} | Tokens Saved: {}",
+                        output.files_processed,
+                        output.total_raw_tokens,
+                        output.total_clean_tokens,
+                        output.tokens_saved
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Error saving llms.txt: {}", e);
+                }
             }
         }
         return Ok(());
