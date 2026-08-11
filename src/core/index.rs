@@ -380,7 +380,8 @@ pub fn search_with_index(index: &SearchIndex, raw_query: &str) -> MultiDocSearch
     let mut df_map: HashMap<String, usize> = HashMap::new();
     for term in &query_terms {
         if let Some(postings) = index.term_posting.get(term) {
-            let unique_docs: std::collections::HashSet<&String> = postings.iter().map(|(dp, _)| dp).collect();
+            let unique_docs: std::collections::HashSet<&String> =
+                postings.iter().map(|(dp, _)| dp).collect();
             df_map.insert(term.clone(), unique_docs.len());
         }
     }
