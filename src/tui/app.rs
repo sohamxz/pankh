@@ -496,12 +496,19 @@ mod tests {
 
     #[test]
     fn test_tui_app_state() {
-        let mut app = App::new("# Test Header\n\nContent line 1\nContent line 2");
+        let mut app = App::new(
+            "# Test Header\n\nContent line 1\nContent line 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8",
+        );
         assert_eq!(app.scroll_offset, 0);
         app.scroll_down(5);
         assert_eq!(app.scroll_offset, 5);
         app.scroll_up(2);
         assert_eq!(app.scroll_offset, 3);
+
+        // Test boundary clamping
+        app.scroll_down(100);
+        assert_eq!(app.scroll_offset, 9); // 10 lines -> max offset 9
+
         assert!(!app.show_toc);
         app.toggle_toc();
         assert!(app.show_toc);
