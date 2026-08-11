@@ -38,11 +38,12 @@ use crate::core::query::parse_query;
 /// Hyper-parallel search across multiple Markdown files/directories using Rayon worker threads
 pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchResult {
     let parsed_query = parse_query(raw_query);
-    let query_terms = if parsed_query.positive_terms.is_empty() {
-        parsed_query.exact_phrases.clone()
-    } else {
-        parsed_query.positive_terms.clone()
-    };
+    let mut query_terms = parsed_query.positive_terms.clone();
+    for phrase in &parsed_query.exact_phrases {
+        if !query_terms.contains(phrase) {
+            query_terms.push(phrase.clone());
+        }
+    }
 
     if parsed_query.is_empty() {
         return MultiDocSearchResult {

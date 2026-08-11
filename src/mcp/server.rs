@@ -50,6 +50,24 @@ fn build_jsonrpc_error(id: Option<Value>, code: i32, message: &str) -> Value {
     })
 }
 
+fn decode_percent_encoding(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex_val) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                result.push(hex_val as char);
+                i += 3;
+                continue;
+            }
+        }
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
 /// Validates and canonicalizes a file path safely to prevent path traversal issues
 pub fn validate_mcp_path(requested: &str) -> Result<PathBuf, String> {
     let trimmed = requested
@@ -59,7 +77,8 @@ pub fn validate_mcp_path(requested: &str) -> Result<PathBuf, String> {
         return Err("Path argument cannot be empty".to_string());
     }
 
-    let path = Path::new(trimmed);
+    let decoded = decode_percent_encoding(trimmed);
+    let path = Path::new(&decoded);
     match fs::canonicalize(path) {
         Ok(canonical) => Ok(canonical),
         Err(_) => Err(format!("File not found or invalid path: {}", requested)),

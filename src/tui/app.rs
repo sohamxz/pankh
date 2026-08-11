@@ -145,7 +145,9 @@ impl App {
     }
 
     pub fn scroll_down(&mut self, amount: u16) {
-        self.scroll_offset = self.scroll_offset.saturating_add(amount);
+        let line_count = self.raw_text.lines().count() as u16;
+        let max_scroll = line_count.saturating_sub(1);
+        self.scroll_offset = self.scroll_offset.saturating_add(amount).min(max_scroll);
     }
 
     pub fn scroll_up(&mut self, amount: u16) {
@@ -183,12 +185,33 @@ impl App {
                 } else {
                     self.status_message = Some(format!("Section not found: {}", link.url));
                 }
-            } else if std::path::Path::new(&link.url).exists() {
-                let path = PathBuf::from(&link.url);
-                if let Ok(new_content) = crate::core::io::read_markdown_file_safe(&path) {
-                    self.load_new_document(&new_content, &link.url, Some(path));
+            } else {
+                let (file_str, anchor_opt) = match link.url.split_once('#') {
+                    Some((f, a)) => (f, Some(a)),
+                    None => (link.url.as_str(), None),
+                };
+
+                let path = PathBuf::from(file_str);
+                if path.exists() {
+                    if let Ok(new_content) = crate::core::io::read_markdown_file_safe(&path) {
+                        self.load_new_document(&new_content, file_str, Some(path));
+                        if let Some(anchor) = anchor_opt {
+                            let target = anchor.to_lowercase();
+                            let heading_match = self.headings.iter().find(|h| {
+                                h.title.to_lowercase().replace(' ', "-").contains(&target)
+                                    || h.title.to_lowercase().contains(&target)
+                            });
+                            if let Some(h) = heading_match {
+                                self.scroll_offset = h.start_line.saturating_sub(1) as u16;
+                                self.status_message =
+                                    Some(format!("Loaded file and jumped to: {}", h.title));
+                            }
+                        }
+                    } else {
+                        self.status_message = Some(format!("Failed to read file: {}", file_str));
+                    }
                 } else {
-                    self.status_message = Some(format!("Failed to read file: {}", link.url));
+                    self.status_message = Some(format!("Link target not found: {}", link.url));
                 }
             }
         }
