@@ -159,7 +159,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 
 fn draw_status_bar(f: &mut Frame, area: Rect, app: &App) {
     let status_text = if app.fuzzy_active {
-        format!(" [Fuzzy Finder] Type to filter | Ctrl+J/K: Navigate | Enter: Open | Esc: Close")
+        " [Fuzzy Finder] Type to filter | Ctrl+J/K: Navigate | Enter: Open | Esc: Close".to_string()
     } else if app.search_active {
         format!(
             " [Search Mode] Query: \"{}\"_ | [Enter]: Find | [Esc]: Cancel Search | [Ctrl+C]: Quit",

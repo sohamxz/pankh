@@ -720,7 +720,7 @@ pub fn run_tui(content: &str, paths: &[PathBuf], watch: bool) -> anyhow::Result<
                     MouseEventKind::ScrollUp => app.scroll_up(3),
                     MouseEventKind::Down(MouseButton::Left) => {
                         let size = terminal.size()?;
-                        if app.show_toc && (mouse.column as u16) < size.width / 4 {
+                        if app.show_toc && mouse.column < size.width / 4 {
                             let idx = mouse.row.saturating_sub(1) as usize;
                             if idx < app.headings.len() {
                                 app.selected_toc_index = idx;
