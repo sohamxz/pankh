@@ -149,7 +149,7 @@ pub fn search_documents(paths: &[PathBuf], raw_query: &str) -> MultiDocSearchRes
     for term in &query_terms {
         let unique_docs: std::collections::HashSet<&String> = raw_hits
             .iter()
-            .filter(|(hit, line_lower, _, heading_title, _)| {
+            .filter(|(_hit, line_lower, _, heading_title, _)| {
                 line_lower.contains(term) || heading_title.contains(term)
             })
             .map(|(hit, ..)| &hit.file_path)
