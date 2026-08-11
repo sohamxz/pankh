@@ -1,0 +1,5 @@
+target/
+.git/
+.superpowers/
+.pankh_index.bin
+docs/
