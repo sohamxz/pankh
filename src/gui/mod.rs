@@ -360,7 +360,7 @@ pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error
 
     let html_content = generate_gui_html(&initial_content, initial_file.as_deref());
 
-    let _webview = WebViewBuilder::new()
+    let webview = WebViewBuilder::new()
         .with_html(html_content)
         .with_ipc_handler(move |req: wry::http::Request<String>| {
             if req.body() == "open_file" {
@@ -378,6 +378,7 @@ pub fn run_gui(file_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
+        let _ = &webview;
 
         match event {
             Event::NewEvents(StartCause::Init) => {}

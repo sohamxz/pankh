@@ -122,18 +122,25 @@ fn print_heading_tree_node(node: &HeadingNode) {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
-    if cli.mcp {
-        return mcp::server::run_mcp_server().await;
-    }
 
     if cli.gui {
         let target_file = cli.files.first().map(|p| p.as_path());
-        gui::run_gui(target_file)?;
+        gui::run_gui(target_file).map_err(|e| anyhow::anyhow!("{}", e))?;
         return Ok(());
+    }
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    rt.block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> anyhow::Result<()> {
+    if cli.mcp {
+        return mcp::server::run_mcp_server().await;
     }
 
     // Resolve file targets (recursively expands directories)
@@ -284,7 +291,10 @@ async fn main() -> anyhow::Result<()> {
             for path in &cli.files {
                 match read_markdown_file_safe(path) {
                     Ok(file_text) => raw_content.push_str(&file_text),
-                    Err(e) => eprintln!("Warning: Skipping '{}': {}", path.display(), e),
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
         }
@@ -297,7 +307,9 @@ async fn main() -> anyhow::Result<()> {
                     }
                     raw_content.push_str(&file_text);
                 }
-                Err(e) => eprintln!("Warning: Skipping '{}': {}", path.display(), e),
+                Err(e) => {
+                    eprintln!("Error: Skipping '{}': {}", path.display(), e);
+                }
             }
         }
     }
